@@ -1,0 +1,421 @@
+# T-Pot Honeypot - Findings Report
+
+**Date:** 2026-06-24
+**Period:** ~24 hours (08:00 - 08:30 following day, UTC)
+**Platform:** T-Pot (Elastic/Kibana dashboard)
+**Author:** Johan Brider
+**Classification:** Internal - Research
+
+---
+
+## Executive Summary
+
+The honeypot recorded **97,000 total attack events** across a 24-hour observation window, sourced from 10+ countries and spanning 10 distinct honeypot sensors. The volume and variety of activity confirm active, automated scanning at internet scale. Three distinct threat clusters stand out: a coordinated campaign targeting **AI/ML tooling ports** (Gradio, ComfyUI, TensorBoard) sourced exclusively from US-based IPs on a known abuse-tolerant hosting provider; a sustained **VoIP toll fraud scanning operation** generating 22k SIP probe events from German and US infrastructure; and continuous **SSH credential stuffing** via commodity botnets generating 23k Cowrie events throughout the full observation window.
+
+The most operationally significant finding is the AI/ML port targeting - ports 7860, 8188, and 6006 collectively drew over 32,000 hits, representing an emerging and underappreciated attack surface. Any organisation running exposed Gradio or ComfyUI instances is at material risk.
+
+---
+
+## Attack Volume by Sensor
+
+| Honeypot | Total Events | % of Total | Service Emulated |
+|---|---|---|---|
+| Honeytrap | 45,000 | 46.4% | Generic TCP/UDP port listener |
+| Cowrie | 23,000 | 23.7% | SSH / Telnet |
+| Sentrypeer | 22,000 | 22.7% | VoIP / SIP |
+| Dionaea | 4,000 | 4.1% | SMB, HTTP, FTP, MSSQL, MySQL |
+| Tanner | 1,000 | 1.0% | Web application (SCADA/ICS web) |
+| RDPHoneypot | 755 | 0.8% | RDP (port 3389) |
+| Adbhoney | 635 | 0.7% | Android Debug Bridge (ADB) |
+| Redishoneypot | 197 | 0.2% | Redis (port 6379) |
+| H0neytr4p | 155 | 0.2% | Generic HTTP |
+| ConPot | 122 | 0.1% | ICS/SCADA (Modbus, SNMP, HTTP) |
+| **Total** | **97,000** | **100%** | |
+
+---
+
+## Geographic Origin
+
+### Attacks by Country
+
+| Country | Event Count | % of Total | Primary Ports Targeted |
+|---|---|---|---|
+| United States | 51,570 | 53.2% | 7860, 8188, 5060, 6006, 8787 |
+| Germany | 11,628 | 12.0% | 5060, 22, 80, 3389, 6379 |
+| Luxembourg | 7,364 | 7.6% | 22, 80, 5555, 23 |
+| France | 6,258 | 6.5% | 5060, 80, 22, 5900, 25565 |
+| Venezuela | 3,147 | 3.2% | 445 (exclusively) |
+| The Netherlands | 2,624 | 2.7% | Mixed |
+| Singapore | 1,127 | 1.2% | Mixed |
+| China | 1,051 | 1.1% | Mixed |
+| South Korea | 964 | 1.0% | Mixed |
+| Belgium | 897 | 0.9% | Mixed |
+
+> Note: GeoIP reflects the exit/hosting location of the scanner, not necessarily actor origin. US, German, Luxembourg, and French traffic is heavily VPS/hosting infrastructure - do not interpret as nation-state attribution.
+
+---
+
+## Top Attacker Source IPs
+
+| Rank | Source IP | Event Count | Notes |
+|---|---|---|---|
+| 1 | 176.65.139.181 | 7,297 | ReliableSite.Net LLC (AS23470) |
+| 2 | 104.243.32.235 | 5,898 | ReliableSite.Net LLC (AS23470) |
+| 3 | 104.243.35.94 | 5,066 | ReliableSite.Net LLC (AS23470) |
+| 4 | 206.221.176.60 | 4,826 | - |
+| 5 | 217.154.226.150 | 4,351 | - |
+| 6 | 104.243.43.7 | 4,273 | ReliableSite.Net LLC (AS23470) |
+| 7 | 15.204.158.162 | 4,145 | OVH / AWS |
+| 8 | 87.106.105.253 | 3,530 | IONOS SE (AS8560) |
+| 9 | 209.222.101.194 | 3,338 | - |
+| 10 | 186.88.212.221 | 3,147 | CANTV Venezuela (AS8048) |
+
+**Cluster alert:** IPs 104.243.32.235, 104.243.35.94, and 104.243.43.7 are all within the same /24 block on AS23470 (ReliableSite.Net LLC). Combined with 176.65.139.181 on the same ASN, this single provider accounts for approximately 22,634 events. This is consistent with a coordinated scanning operation running across multiple rented VPS nodes on abuse-tolerant infrastructure.
+
+---
+
+## Top Attacker ASNs
+
+| ASN | Organisation | Event Count | Notes |
+|---|---|---|---|
+| AS23470 | ReliableSite.Net LLC | 35,235 | Known abuse-tolerant / bulletproof-adjacent hosting |
+| AS8560 | IONOS SE | 10,383 | Legitimate German cloud, commonly abused |
+| AS18276 | OVH SAS | 9,653 | French cloud, high abuse volume historically |
+| AS214472 | Offshore LC | 7,349 | Offshore hosting, permissive AUP |
+| AS8048 | CANTV Servicios, Venezuela | 3,147 | Venezuelan state ISP - full traffic is SMB/port 445 |
+| AS209334 | Modat B.V. | 2,635 | Dutch hosting |
+| AS396982 | Google LLC | 1,882 | GCP - likely compromised VM or scanning service |
+| AS215925 | Vpsvault.host Ltd | 1,798 | VPS hosting |
+| AS49870 | Alsycon B.V. | 1,244 | Dutch hosting |
+| AS8075 | Microsoft Corporation | 1,126 | Azure - likely compromised VM or scanning service |
+
+> ReliableSite (AS23470) is a well-documented abuse host used by threat actors for scanning, phishing infrastructure, and C2. Over a third of all observed traffic originates from this single ASN.
+
+---
+
+## Port & Protocol Analysis
+
+### Attacks by Country and Port (Top Combinations)
+
+| Country | Port | Count | Service | Assessment |
+|---|---|---|---|---|
+| United States | 7860 | 14,866 | Gradio (ML web UI) | AI/ML targeting - see Finding 1 |
+| United States | 8188 | 10,636 | ComfyUI (AI image gen) | AI/ML targeting - see Finding 1 |
+| Germany | 5060 | 10,401 | SIP/VoIP | Toll fraud scanning |
+| United States | 5060 | 7,766 | SIP/VoIP | Toll fraud scanning |
+| United States | 6006 | 5,159 | TensorBoard (ML) | AI/ML targeting - see Finding 1 |
+| United States | 8787 | 1,365 | RStudio Server | Exposed analytics tooling |
+| Luxembourg | 22 | 1,477 | SSH | Credential stuffing |
+| France | 5060 | 2,649 | SIP/VoIP | Toll fraud scanning |
+| Venezuela | 445 | 3,147 | SMB | EternalBlue/legacy SMB scanning |
+| Germany | 22 | 105 | SSH | Credential stuffing |
+| Germany | 3389 | 34 | RDP | RDP brute force |
+| Germany | 6379 | 15 | Redis | Unauthenticated Redis probing |
+| France | 5900 | 23 | VNC | Remote access probing |
+| France | 25565 | 25 | Minecraft | Game server scanning |
+
+### Protocol Breakdown (Last 15m sample)
+
+From the T-Pot dashboard protocol breakdown (Attack Distribution):
+
+- **SIP** - dominant (Sentrypeer)
+- **SSH** - secondary (Cowrie)
+- **TELNET** - present
+- **JETDIRECT** - printer port targeting (HP JetDirect, port 9100)
+- **PPTP** - VPN probing
+- **HTTP / HTTPS** - web scanning
+- **POSTGRESQL** - database probing
+
+---
+
+## Key Findings
+
+### Finding 1 - AI/ML Tooling Port Targeting (HIGH)
+
+**BLUF:** Threat actors are actively scanning for exposed AI/ML tooling - Gradio, ComfyUI, and TensorBoard. Over 32,000 hits on these ports from US-based VPS infrastructure in a single 24-hour window.
+
+| Port | Service | Hit Count | Risk |
+|---|---|---|---|
+| 7860 | Gradio | 14,866 | Unauthorised model access, compute abuse, data exfiltration |
+| 8188 | ComfyUI | 10,636 | Unauthorised image generation, GPU abuse |
+| 6006 | TensorBoard | 5,159 | Training run exposure, model theft, data leakage |
+| 8787 | RStudio Server | 1,365 | R environment exposure, data access |
+
+This is an emerging attack pattern not yet widely tracked in mainstream threat intel. Gradio and ComfyUI are frequently run locally by ML practitioners and exposed publicly without authentication - either intentionally for demos or accidentally. Attackers targeting these services can abuse GPU compute, steal proprietary models, or pivot into underlying infrastructure.
+
+All traffic sourced from AS23470 (ReliableSite), suggesting a single threat actor or scanning operation running coordinated probes across multiple VPS nodes.
+
+**MITRE ATT&CK:**
+- T1190 - Exploit Public-Facing Application
+- T1496 - Resource Hijacking (GPU/compute)
+- T1530 - Data from Cloud Storage (model weights)
+
+**Recommended Action:** Any Gradio, ComfyUI, or TensorBoard instance exposed to the internet without authentication should be treated as compromised or imminently at risk. Enforce authentication, restrict to VPN/localhost, or take offline.
+
+---
+
+### Finding 2 - VoIP Toll Fraud Scanning Campaign (HIGH)
+
+**BLUF:** Sustained SIP scanning across the full 24-hour window from German and US VPS infrastructure. 22k+ events through Sentrypeer indicates an automated toll fraud operation probing for open/misconfigured SIP endpoints.
+
+- **Primary sources:** Germany (10,401), USA (7,766), France (2,649)
+- **Target port:** 5060 (SIP)
+- **Pattern:** Consistent from 14:30 onwards, maintains 400-900 events per 30-minute window through the night - characteristic of automated, non-rate-limited SIP scanners
+
+The activity pattern is consistent with actors scanning for SIP servers and PBX systems that allow unauthenticated outbound calls for toll fraud. Germany and France being primary sources aligns with known European VoIP abuse infrastructure clusters.
+
+**MITRE ATT&CK:**
+- T1498 - Network Denial of Service (SIP flood)
+- T1078 - Valid Accounts (compromised SIP credentials)
+
+**Recommended Action:** Block inbound SIP (5060/5061) at perimeter unless explicitly needed. Enforce SIP authentication. Alert on SIP registration attempts from non-expected source ranges.
+
+---
+
+### Finding 3 - SSH Credential Stuffing (MEDIUM-HIGH)
+
+**BLUF:** 23k Cowrie events over 24 hours, continuous throughout the observation window. Classic commodity botnet credential stuffing with highly predictable username/password combinations.
+
+**Top Usernames Observed:**
+
+```
+root, admin, administrator, ubuntu, postgres, test, user, sa, ansible,
+deploy, support, testuser, agents, 345gs5662d34, linuxbrew, scanner
+```
+
+**Top Passwords Observed:**
+
+```
+123456, 1234, (blank), admin123, admin1234, 1234567890, 12345678, 123321,
+test, password, system, P@ssw0rd#2022, P@ssw0rdP@ssw0rd, Admin@2025
+```
+
+Notable observations:
+- `P@ssw0rd#2022` and `Admin@2025` in the password list indicate threat actors are using year-appended variations, suggesting password spray rather than pure brute force
+- `345gs5662d34` appears in both username and password lists - a distinctive string possibly from a specific malware family or scanning tool
+- `ansible`, `deploy`, `agents` - targeting DevOps/automation service accounts
+- Blank password attempts confirm they are trying default/unconfigured accounts
+
+Primary SSH scanning sources: Luxembourg (1,477), France (48), Germany (105)
+
+**MITRE ATT&CK:**
+- T1110.001 - Brute Force: Password Guessing
+- T1110.003 - Brute Force: Password Spraying
+- T1078.003 - Valid Accounts: Local Accounts
+
+---
+
+### Finding 4 - ReliableSite Coordinated Scan Cluster (HIGH)
+
+**BLUF:** A single ASN (AS23470, ReliableSite.Net LLC) accounts for 35,235 events - 36% of all observed traffic. Multiple IPs within the same /24 subnet are operating in parallel, indicating a deliberate multi-node scanning operation rather than a single scanner.
+
+```
+176.65.139.181  - 7,297 events
+104.243.32.235  - 5,898 events  [/24 cluster]
+104.243.35.94   - 5,066 events  [/24 cluster]
+104.243.43.7    - 4,273 events  [/24 cluster]
+```
+
+ReliableSite has a documented history as abuse-tolerant infrastructure used by threat actors for scanning, phishing, and C2 operations. The parallel operation of multiple IPs from the same provider and subnet points to either a single threat actor with multiple VPS subscriptions, or a shared scanning tool/botnet using rented infrastructure.
+
+**Recommended Action:** Block or alert on AS23470 at perimeter. IOC below for immediate enrichment.
+
+**IOCs:**
+
+```
+[IPv4] 176.65.139.181
+[IPv4] 104.243.32.235
+[IPv4] 104.243.35.94
+[IPv4] 104.243.43.7
+[ASN]  AS23470 (ReliableSite.Net LLC)
+```
+
+Confidence: **High** - sourced from direct honeypot observation, consistent high-volume scanning across 24 hours.
+
+---
+
+### Finding 5 - Venezuela SMB Scanning (MEDIUM)
+
+**BLUF:** 3,147 events exclusively on port 445 (SMB) from a single source (186.88.212.221) on CANTV Servicios, the Venezuelan state ISP (AS8048).
+
+The exclusive focus on SMB and the single-source, single-port nature of this traffic is consistent with automated scanning for EternalBlue-vulnerable hosts (MS17-010 / WannaCry/NotPetya attack surface) or SMB credential attacks. CANTV residential and business IP space is commonly seen in SMB scanning campaigns, suggesting either a compromised host within CANTV's network or a VPS abusing the ISP's infrastructure.
+
+**IOCs:**
+
+```
+[IPv4] 186.88.212.221
+[ASN]  AS8048 (CANTV Servicios, Venezuela)
+```
+
+Confidence: **Medium** - single source, single port, single country. Could be one compromised host rather than organised campaign.
+
+**MITRE ATT&CK:**
+- T1210 - Exploitation of Remote Services
+- T1021.002 - Remote Services: SMB/Windows Admin Shares
+
+---
+
+### Finding 6 - Dionaea Scanning Burst (MEDIUM)
+
+**BLUF:** A sharp spike of ~2,000 Dionaea events at 18:30, dropping to 737 at 19:00 then near-zero. Dionaea captures exploitation attempts against SMB, HTTP, FTP, MSSQL, MySQL. This pattern is characteristic of a targeted automated scan rather than continuous background noise.
+
+The brevity and intensity of the burst suggests a scanning tool with rate control - quick sweep across a CIDR range then moves on. Dionaea would have captured any malware binaries dropped during this window. Worth reviewing raw Dionaea logs for any captured samples.
+
+---
+
+### Finding 7 - CVE-2020-11900 Detection (LOW-MEDIUM)
+
+**BLUF:** Suricata fired on CVE-2020-11900 twice during the observation window. Low count, but notable.
+
+CVE-2020-11900 is part of the **Ripple20** vulnerability set - a collection of critical flaws in the Treck TCP/IP stack embedded in hundreds of millions of IoT and industrial devices. The specific CVE is a heap-based buffer overflow allowing remote code execution. Even two detections indicate someone is actively probing for this attack surface.
+
+Confidence: **Low** (only 2 hits, could be noise or miscategorised traffic) - flag for monitoring rather than immediate action.
+
+**MITRE ATT&CK:**
+- T1210 - Exploitation of Remote Services
+
+---
+
+## Suricata Alert Summary
+
+| SID | Description | Count | Assessment |
+|---|---|---|---|
+| 2200122 | AF-PACKET truncated packet | 8,110 | Scanning tools sending malformed/truncated packets |
+| 2200003 | IPv4 truncated packet | 7,457 | Same - malformed packet scanning |
+| 2260001 | Applayer wrong direction first data | 1,586 | Protocol abuse / TLS/protocol mismatch probes |
+| 2001978 | ET INFO SSH session in progress on expected port | 1,268 | Legitimate SSH session tracking |
+| 2260002 | Applayer detect protocol only one direction | 1,063 | One-sided protocol probing |
+| 2210037 | STREAM FIN recv but no session | 791 | SYN scan / stealth scanning activity |
+| 2210051 | STREAM packet with broken ack | 751 | TCP manipulation / scanning tool artefact |
+| 2200013 | IPv6 truncated packet | 656 | IPv6 surface scanning |
+| 2100486 | GPL ICMP Destination Unreachable | 345 | Network mapping |
+| 2210048 | STREAM reassembly sequence GAP | 307 | Session manipulation / evasion attempt |
+
+The high volume of truncated packet alerts (2200122, 2200003, 2200013 combined: ~16k) is a strong indicator of automated scanning tools operating at speed without regard for protocol correctness. This is characteristic of masscan, zmap, or similar high-throughput internet scanners.
+
+The STREAM FIN / broken ACK / sequence gap alerts collectively indicate TCP-level scanning evasion - likely SYN scan or half-open scan techniques designed to avoid stateful firewall logging.
+
+---
+
+## Temporal Analysis
+
+### Notable Spikes
+
+| Time (UTC) | Sensor | Volume | Assessment |
+|---|---|---|---|
+| 15:30 | Honeytrap | ~15,000 | Largest single spike of observation window |
+| 20:00 | Honeytrap | ~10,000 | Second major spike |
+| 17:30-17:00 | Honeytrap | ~2,000-3,000 | Elevated period |
+| 18:30-19:00 | Dionaea | ~2,000-737 | Targeted burst (Finding 6) |
+| 09:30 | Cowrie | ~2,000 | SSH scanning spike |
+| 14:30 onwards | Sentrypeer | Sustained 400-900/30min | VoIP scanning onset - consistent through night |
+
+### Pattern Observations
+
+- **Cowrie (SSH):** Runs continuously 24 hours with no clear quiet period - automated botnet activity, not human-operated
+- **Sentrypeer (SIP):** Near-zero before 14:30, then sustained high volume through the night and into the morning - suggests campaign that started mid-afternoon and ran overnight
+- **Honeytrap:** Two major bursts (15:30 and 20:00) with elevated background throughout - possibly two separate scan runs from the same actor
+- **Dionaea:** Almost entirely flat except the 18:30 burst - isolated automated sweep
+
+---
+
+## Credential Intelligence (IOC - Cowrie)
+
+The following credentials were observed in active use during SSH brute force attempts. Flag these in your SIEM for detection of successful authentication:
+
+**High-frequency usernames:**
+```
+root
+admin
+administrator
+ubuntu
+postgres
+test
+user
+sa
+ansible
+deploy
+support
+```
+
+**High-frequency passwords:**
+```
+123456
+1234
+(blank / empty)
+admin123
+admin1234
+1234567890
+12345678
+123321
+test
+password
+system
+P@ssw0rd#2022
+Admin@2025
+```
+
+**Distinctive string (username + password):**
+```
+345gs5662d34
+```
+This string appearing in both fields is unusual and may be a fingerprint of a specific scanning tool or malware family. Worth searching against known malware IOC databases.
+
+---
+
+## IOC Table
+
+| Type | Value | Context | Confidence | Source |
+|---|---|---|---|---|
+| [IPv4] | 176.65.139.181 | Top attacker - ReliableSite VPS | High | Honeypot direct observation |
+| [IPv4] | 104.243.32.235 | ReliableSite cluster - coordinated scan | High | Honeypot direct observation |
+| [IPv4] | 104.243.35.94 | ReliableSite cluster - coordinated scan | High | Honeypot direct observation |
+| [IPv4] | 104.243.43.7 | ReliableSite cluster - coordinated scan | High | Honeypot direct observation |
+| [IPv4] | 206.221.176.60 | High-volume scanner | Medium | Honeypot direct observation |
+| [IPv4] | 217.154.226.150 | High-volume scanner | Medium | Honeypot direct observation |
+| [IPv4] | 15.204.158.162 | OVH/AWS scanner | Medium | Honeypot direct observation |
+| [IPv4] | 87.106.105.253 | IONOS scanner | Medium | Honeypot direct observation |
+| [IPv4] | 209.222.101.194 | High-volume scanner | Medium | Honeypot direct observation |
+| [IPv4] | 186.88.212.221 | CANTV Venezuela - SMB scanner | Medium | Honeypot direct observation |
+| [ASN] | AS23470 | ReliableSite.Net LLC - abuse-tolerant | High | Honeypot + open source |
+| [CVE] | CVE-2020-11900 | Ripple20 - Treck TCP/IP RCE | Low | Suricata detection |
+
+---
+
+## MITRE ATT&CK Summary
+
+| Tactic | Technique | Sub-technique | Evidence |
+|---|---|---|---|
+| Reconnaissance | T1595 - Active Scanning | T1595.001 - Scanning IP Blocks | Masscan-style truncated packet scanning |
+| Reconnaissance | T1595 - Active Scanning | T1595.002 - Vulnerability Scanning | CVE-2020-11900 probe, Redis/RDP probing |
+| Initial Access | T1190 - Exploit Public-Facing Application | - | AI/ML tooling port targeting, Dionaea burst |
+| Initial Access | T1110 - Brute Force | T1110.001 - Password Guessing | Cowrie SSH data |
+| Initial Access | T1110 - Brute Force | T1110.003 - Password Spraying | Year-appended password variants |
+| Execution | T1059 - Command and Scripting Interpreter | - | Cowrie session attempts post-auth |
+| Resource Development | T1583 - Acquire Infrastructure | T1583.003 - Virtual Private Server | ReliableSite / OVH / IONOS VPS usage |
+| Impact | T1496 - Resource Hijacking | - | AI/ML compute targeting |
+| Impact | T1210 - Exploitation of Remote Services | - | SMB/EternalBlue, Ripple20 |
+
+---
+
+## Recommendations
+
+1. **AI/ML exposure audit** - Inventory any Gradio, ComfyUI, or TensorBoard instances in your environment. None should be internet-facing without authentication and network access controls.
+
+2. **Block AS23470** - ReliableSite.Net LLC has no legitimate business reason to interact with your infrastructure. Block at perimeter firewall or SIEM-alert on inbound from this ASN.
+
+3. **Enrich IOC list** - Submit the top 10 source IPs to VirusTotal, Shodan, and AbuseIPDB for additional context. Cross-reference against MISP for any existing actor attribution.
+
+4. **SIP exposure** - If SIP/VoIP is in scope for any clients, review whether port 5060 is exposed externally. The sustained scanning volume suggests active operators looking for quick wins.
+
+5. **Sentinel detection opportunities** - The `345gs5662d34` string in credential data is a useful detection candidate. Any successful auth event using this username/password combination against production systems should be a high-priority alert.
+
+6. **Credential blocklist** - Feed the observed password list into Azure AD Password Protection custom banned passwords list.
+
+7. **SMB hardening** - If any client infrastructure is reachable on port 445 from the internet, this is a critical remediation. The Venezuela scan volume is a reminder that SMB exposure remains actively exploited.
+
+---
+
+*Report generated from T-Pot honeypot telemetry - 2026-06-24*
+*Data sources: Kibana dashboard exports, Suricata alerts, Cowrie session logs*
+
