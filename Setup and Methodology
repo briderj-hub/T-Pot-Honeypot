@@ -1,0 +1,9 @@
+Platform: T-Pot - Deutsche Telekom Security's multi-honeypot platform running on a single host, managed via Elastic/Kibana.
+
+Observation window: 24 hours (08:00 - 08:30 following day, UTC)
+
+Sensors active:
+
+SensorService EmulatedPurposeHoneytrapGeneric TCP/UDPCaptures connections to any portCowrieSSH / TelnetCredential brute force + session loggingSentrypeerSIP / VoIPVoIP toll fraud scanningDionaeaSMB, HTTP, FTP, MSSQL, MySQLMalware capture + exploit detectionTannerWeb / SCADA webWeb app attack captureRDPHoneypotRDP (3389)Remote desktop brute forceAdbhoneyAndroid ADB (5555)Android debug bridge probingRedishoneypotRedis (6379)Unauthenticated Redis probingH0neytr4pHTTPGeneric web scanningConPotICS/SCADA (Modbus, SNMP)Industrial protocol scanning
+
+No real infrastructure. No production data. Every connection is an attacker.
